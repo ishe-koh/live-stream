@@ -1,0 +1,8 @@
+# secrets
+*.env
+/etc/streamer/*
+logs/*
+
+# editor / misc
+*.swp
+.DS_Store
