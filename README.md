@@ -1,132 +1,136 @@
-live-stream
+# live-stream
 
-Raspberry Pi 5 と Camera Module V3 を用いた
-YouTube Live 向け常時配信システム。
+Raspberry Pi 5 と Camera Module v3 を用いて、YouTube Live へ常時配信を行うための配信基盤です。  
+rpicam-vid と ffmpeg を組み合わせ、systemd による常駐実行と、日の出・日の入りに応じた撮影プロファイルの自動切替を行います。
 
-rpicam-vid と ffmpeg をベースに、
-systemd / cron / Slack 通知を組み合わせることで、
+---
 
-安定した常時ライブ配信
+## 目次
 
-時間帯（日中・夜間・深夜）に応じたカメラ設定の自動切替
+- [概要](#概要)
+- [特徴](#特徴)
+- [構成要件](#構成要件)
+- [ディレクトリ構成](#ディレクトリ構成)
+- [セットアップ](#セットアップ)
+- [プロファイル設定](#プロファイル設定)
+- [systemd サービス](#systemd-サービス)
+- [プロファイルの切替](#プロファイルの切替)
+- [自動切替（weather_report）](#自動切替weather_report)
+- [Slack 通知](#slack-通知)
+- [Git 管理方針](#git-管理方針)
 
-日の出・日の入り時刻を基準とした自動制御
+---
 
-プロファイル切替時の通知
+## 概要
 
-プロセス異常時の自動再起動
+本リポジトリは、Raspberry Pi を用いた **365日稼働の定点ライブ配信** を目的としています。  
+配信停止時の復旧や、昼夜による撮影条件の変化を前提に設計されています。
 
-を実現する。
+---
 
-特徴
+## 特徴
 
-Raspberry Pi 5 + Camera Module V3 に最適化
+- rpicam-vid + ffmpeg による軽量な配信パイプライン
+- systemd による自動再起動・常駐実行
+- 撮影条件を切り替える「プロファイル」機構
+- 日の出・日の入りを基準にした自動プロファイル切替
+- Slack Webhook による通知
 
-rpicam-vid | ffmpeg によるシンプルな映像パイプライン
+---
 
-設定ファイルによるプロファイル管理
+## 構成要件
 
-systemd による常駐・自動復旧
+### ハードウェア
 
-cron による定期的な環境判定
+- Raspberry Pi 5
+- Raspberry Pi Camera Module v3
+- 安定したネットワーク接続
 
-Slack Webhook による状態通知
+### ソフトウェア
 
-秘密情報を Git 管理対象から分離
+- Raspberry Pi OS（Bookworm 推奨）
+- rpicam-apps
+- ffmpeg
+- curl
+- jq
+- systemd
+- cron
 
-ディレクトリ構成
-/opt/live-stream/            # 実装本体（Git 管理対象）
-├─ stream.sh                 # 配信処理本体
-├─ run.sh                    # systemd 用ラッパ
-├─ switch_profile.sh         # プロファイル切替
-├─ weather_report.sh         # 日の出・日の入り判定
-├─ profile.env               # 現在有効なプロファイル
-├─ profiles/
-│   ├─ day.conf
-│   ├─ night.conf
-│   └─ midnight.conf
-├─ logs/
-└─ bin/
-    └─ notify_slack.sh
+---
 
-/etc/streamer/               # 秘密情報（Git 管理対象外）
-├─ stream_key
-├─ slack_webhook
-└─ *.sample
+## ディレクトリ構成
 
-設計方針
-実装ディレクトリ /opt/live-stream
 
-実行コード・設定ロジックを集約
-
-GitHub で管理・共有可能
-
-clone しても安全に動作する構成
-
-秘密情報ディレクトリ /etc/streamer
-
-YouTube ストリームキー
-
-Slack Webhook URL
-
-これらは Git 管理対象から完全に除外する。
-
-理由：
-
-誤 push 防止
-
-権限管理の明確化
-
-Linux の慣例（機密設定は /etc）
-
-動作環境
-ハードウェア
-
-Raspberry Pi 5
-
-Raspberry Pi Camera Module V3
-
-OS
-
-Raspberry Pi OS (Bookworm)
-
-必要パッケージ
+/opt/live-stream/
+├── run.sh                     # systemd から起動されるエントリポイント
+├── stream.sh                  # 配信本体
+├── profile.env                # 現在有効なプロファイル名
+├── profiles/
+│   ├── day.conf
+│   ├── night.conf
+│   └── midnight.conf
+├── bin/
+│   ├── switch_profile.sh      # プロファイル切替スクリプト
+│   ├── weather_report.sh      # 日の出・日の入り判定
+│   └── notify_slack.sh        # Slack 通知
+└── logs/
+    └── weather_report.log
+text
+コードをコピーする
+/etc/streamer/
+├── stream_key                 # YouTube ストリームキー（実体）
+├── slack_webhook              # Slack Webhook URL（実体）
+└── samples/
+    ├── stream_key.sample
+    └── slack_webhook.sample
+セットアップ
+1. 必要パッケージのインストール
+bash
+コードをコピーする
 sudo apt update
-sudo apt install -y \
-  git curl jq ffmpeg cron
+sudo apt install -y rpicam-apps ffmpeg curl jq
+2. ユーザー・権限設計
+実行ユーザー：streamer
 
-初期セットアップ
-1. リポジトリ配置
-cd /opt
-git clone git@github.com:ishe-koh/live-stream.git
-cd live-stream
+開発・保守用ユーザー：ishii
 
-2. 秘密情報の作成
-sudo mkdir -p /etc/streamer
-sudo chmod 755 /etc/streamer
+共通グループ：dev
 
-YouTube ストリームキー
-sudo nano /etc/streamer/stream_key
-sudo chmod 600 /etc/streamer/stream_key
-
-Slack Webhook
-sudo nano /etc/streamer/slack_webhook
-sudo chmod 600 /etc/streamer/slack_webhook
-
+bash
+コードをコピーする
+sudo groupadd dev
+sudo useradd -m -G dev streamer
+sudo usermod -aG dev ishii
+3. ディレクトリ配置
+bash
+コードをコピーする
+sudo mkdir -p /opt/live-stream
+sudo chown -R streamer:dev /opt/live-stream
+sudo chmod -R 775 /opt/live-stream
 プロファイル設定
-profiles/day.conf
+プロファイルとは
+撮影条件をまとめた設定ファイルです。
+profile.env に記載された名前のプロファイルが読み込まれます。
 
-昼間用。
-自動制御を優先するため、最低限の指定のみとする。
-
+env
+コードをコピーする
+PROFILE=day
+プロファイル例
+day.conf
+conf
+コードをコピーする
 WIDTH=2304
 HEIGHT=1296
 FPS=30
 
-profiles/night.conf
-
-夜間用。
-
+SHUTTER=
+GAIN=
+AWB=
+METERING=
+DENOISE=
+night.conf
+conf
+コードをコピーする
 WIDTH=2304
 HEIGHT=1296
 FPS=30
@@ -136,67 +140,83 @@ GAIN=1.5
 AWB=tungsten
 METERING=spot
 DENOISE=off
-
-profiles/midnight.conf
-
-深夜用。
-
-WIDTH=2304
-HEIGHT=1296
-FPS=30
-
-SHUTTER=30000
-GAIN=2.0
-AWB=tungsten
-METERING=spot
-DENOISE=off
+未指定の項目は rpicam-vid の自動制御に委ねられます。
 
 systemd サービス
-登録
-sudo cp systemd/live-stream.service /etc/systemd/system/
+サービス定義
+ini
+コードをコピーする
+[Unit]
+Description=YouTube Live Camera Stream
+After=network.target
+
+[Service]
+User=streamer
+WorkingDirectory=/opt/live-stream
+ExecStart=/opt/live-stream/run.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+有効化
+bash
+コードをコピーする
+sudo systemctl daemon-reexec
 sudo systemctl daemon-reload
-sudo systemctl enable live-stream
-sudo systemctl start live-stream
-
-状態確認
-journalctl -u live-stream -f
-
-プロファイル切替
+sudo systemctl enable live-stream.service
+sudo systemctl start live-stream.service
+プロファイルの切替
 手動切替
-sudo /opt/live-stream/switch_profile.sh day
-sudo /opt/live-stream/switch_profile.sh night
-sudo /opt/live-stream/switch_profile.sh midnight
+bash
+コードをコピーする
+/opt/live-stream/bin/switch_profile.sh night
+profile.env を更新
 
-
-切替時には Slack に通知が送信される。
-
-自動切替（日の出・日の入り）
-
-weather_report.sh は以下の基準で動作する。
-
-日の出 35分前 から day
-
-日の入り 35分後 から night
-
-それ以外の時間帯は midnight / night
-
-cron 登録例
-*/1 * * * * /opt/live-stream/weather_report.sh >> /opt/live-stream/logs/weather_report.log 2>&1
-
-実行フロー概要
-
-systemd が run.sh を起動
-
-stream.sh が現在の profile.env を読み込み
-
-rpicam-vid + ffmpeg で配信開始
-
-cron が定期的に weather_report.sh を実行
-
-必要に応じて switch_profile.sh がプロファイル変更
+live-stream.service を再起動
 
 Slack に通知
 
-セキュリティ（権限・sudo）設計の明文化
+自動切替（weather_report）
+動作概要
+Sunrise Sunset API から日の出・日の入りを取得
 
-ここまで来たら、もう立派な「再利用できる基盤」だと思っていい。
+日の出 35分前 → day 系プロファイル
+
+日の入り 35分後 → night 系プロファイル
+
+現在のプロファイルグループと比較し、必要な場合のみ切替
+
+cron 登録例
+cron
+コードをコピーする
+*/10 * * * * /opt/live-stream/bin/weather_report.sh >> /opt/live-stream/logs/weather_report.log 2>&1
+Slack 通知
+Webhook 設定
+bash
+コードをコピーする
+sudo mkdir -p /etc/streamer
+sudo cp slack_webhook.sample /etc/streamer/slack_webhook
+sudo chmod 600 /etc/streamer/slack_webhook
+sudo chown streamer:streamer /etc/streamer/slack_webhook
+Git 管理方針
+/opt/live-stream は Git 管理対象
+
+/etc/streamer の 実体ファイルは管理しない
+
+.sample のみをリポジトリに含める
+
+text
+コードをコピーする
+/etc/streamer/stream_key
+/etc/streamer/slack_webhook
+これらは .gitignore 対象です。
+
+補足
+本構成は以下を前提に設計されています。
+
+配信は途切れても自動復帰する
+
+明示的な「停止」より「再起動」を優先
+
+設定はコードではなくプロファイルで切り替える
