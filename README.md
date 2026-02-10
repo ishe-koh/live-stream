@@ -60,7 +60,7 @@ rpicam-vid と ffmpeg を組み合わせ、systemd による常駐実行と、�
 
 ## ディレクトリ構成
 
-
+```text
 /opt/live-stream/
 ├── run.sh                     # systemd から起動されるエントリポイント
 ├── stream.sh                  # 配信本体
@@ -75,20 +75,27 @@ rpicam-vid と ffmpeg を組み合わせ、systemd による常駐実行と、�
 │   └── notify_slack.sh        # Slack 通知
 └── logs/
     └── weather_report.log
-text
-コードをコピーする
+```
+
+```text
+
 /etc/streamer/
 ├── stream_key                 # YouTube ストリームキー（実体）
 ├── slack_webhook              # Slack Webhook URL（実体）
 └── samples/
     ├── stream_key.sample
     └── slack_webhook.sample
-セットアップ
+```
+
+## セットアップ
 1. 必要パッケージのインストール
+```text
 bash
-コードをコピーする
+
 sudo apt update
 sudo apt install -y rpicam-apps ffmpeg curl jq
+```
+
 2. ユーザー・権限設計
 実行ユーザー：streamer
 
@@ -96,29 +103,37 @@ sudo apt install -y rpicam-apps ffmpeg curl jq
 
 共通グループ：dev
 
+```text
+
 bash
-コードをコピーする
+
 sudo groupadd dev
 sudo useradd -m -G dev streamer
 sudo usermod -aG dev ishii
+```
+
+
 3. ディレクトリ配置
+```text
 bash
-コードをコピーする
 sudo mkdir -p /opt/live-stream
 sudo chown -R streamer:dev /opt/live-stream
 sudo chmod -R 775 /opt/live-stream
-プロファイル設定
+```
+
+## プロファイル設定
 プロファイルとは
 撮影条件をまとめた設定ファイルです。
 profile.env に記載された名前のプロファイルが読み込まれます。
 
+```text
 env
-コードをコピーする
 PROFILE=day
+```
 プロファイル例
+```text
 day.conf
-conf
-コードをコピーする
+
 WIDTH=2304
 HEIGHT=1296
 FPS=30
@@ -128,9 +143,11 @@ GAIN=
 AWB=
 METERING=
 DENOISE=
+```
+
+```text
 night.conf
-conf
-コードをコピーする
+
 WIDTH=2304
 HEIGHT=1296
 FPS=30
@@ -140,12 +157,14 @@ GAIN=1.5
 AWB=tungsten
 METERING=spot
 DENOISE=off
+```
+
 未指定の項目は rpicam-vid の自動制御に委ねられます。
 
-systemd サービス
+## systemd サービス
 サービス定義
+```text
 ini
-コードをコピーする
 [Unit]
 Description=YouTube Live Camera Stream
 After=network.target
@@ -159,25 +178,32 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-有効化
+```
+
+## 有効化
+```text
 bash
-コードをコピーする
+
 sudo systemctl daemon-reexec
 sudo systemctl daemon-reload
 sudo systemctl enable live-stream.service
 sudo systemctl start live-stream.service
-プロファイルの切替
+```
+
+## プロファイルの切替
 手動切替
+```text
 bash
-コードをコピーする
 /opt/live-stream/bin/switch_profile.sh night
+```
+
 profile.env を更新
 
 live-stream.service を再起動
 
-Slack に通知
+## Slack 通知
 
-自動切替（weather_report）
+## 自動切替（weather_report）
 動作概要
 Sunrise Sunset API から日の出・日の入りを取得
 
@@ -188,28 +214,32 @@ Sunrise Sunset API から日の出・日の入りを取得
 現在のプロファイルグループと比較し、必要な場合のみ切替
 
 cron 登録例
+
+```text
 cron
-コードをコピーする
 */10 * * * * /opt/live-stream/bin/weather_report.sh >> /opt/live-stream/logs/weather_report.log 2>&1
+```
 Slack 通知
 Webhook 設定
+```text
 bash
-コードをコピーする
 sudo mkdir -p /etc/streamer
 sudo cp slack_webhook.sample /etc/streamer/slack_webhook
 sudo chmod 600 /etc/streamer/slack_webhook
 sudo chown streamer:streamer /etc/streamer/slack_webhook
-Git 管理方針
+```
+
+## Git 管理方針
 /opt/live-stream は Git 管理対象
 
 /etc/streamer の 実体ファイルは管理しない
 
 .sample のみをリポジトリに含める
 
-text
-コードをコピーする
+```text
 /etc/streamer/stream_key
 /etc/streamer/slack_webhook
+```
 これらは .gitignore 対象です。
 
 補足
