@@ -10,16 +10,10 @@ fi
 
 WEBHOOK_URL="$(cat "$WEBHOOK_FILE")"
 
-MESSAGE="$1"
+MESSAGE="${1:?message is required}"
+payload=$(jq -n --arg text "$MESSAGE" '{text: $text}')
 
-payload=$(cat <<EOF
-{
-  "text": "$MESSAGE"
-}
-EOF
-)
-
-curl -s -X POST \
+curl --fail --silent --show-error -X POST \
   -H 'Content-Type: application/json' \
   --data "$payload" \
   "$WEBHOOK_URL" >/dev/null

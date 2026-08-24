@@ -35,9 +35,16 @@ echo "[profile] cam opts: ${CAM_OPTS[*]}" >&2
 exec rpicam-vid "${CAM_OPTS[@]}" | \
 ffmpeg \
   -f rawvideo -pix_fmt yuv420p -s ${WIDTH}x${HEIGHT} -r "$FPS" -i - \
+  -stream_loop -1 -i /opt/live-stream/media/banner/entas_banner_fixed.mp4 \
   -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 \
-  -map 0:v -map 1:a \
-  -c:v libx264 -preset veryfast -tune zerolatency \
+  -filter_complex "
+    [0:v]setpts=PTS-STARTPTS[cam];
+    [1:v]fps=10,format=yuv420p,setpts=PTS-STARTPTS[banner];
+    [cam][banner]overlay=0:${HEIGHT}-144[outv]
+  " \
+  -map "[outv]" \
+  -map 2:a \
+  -c:v libx264 -preset ultrafast -tune zerolatency \
   -b:v 9000k -maxrate 9000k -bufsize 18000k \
   -g 60 -keyint_min 60 \
   -pix_fmt yuv420p \

@@ -1,0 +1,10 @@
+[Unit]
+Description=Reset YouTube live stream daily at 02:00 JST
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 Asia/Tokyo
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

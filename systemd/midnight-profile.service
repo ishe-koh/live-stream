@@ -1,0 +1,6 @@
+[Unit]
+Description=Select the midnight live stream profile
+
+[Service]
+Type=oneshot
+ExecStart=/opt/live-stream/switch_profile.sh midnight systemd-timer

@@ -1,5 +1,4 @@
 #!/bin/bash
-echo "[weather] reporter allived"
 set -euo pipefail
 
 DEBUG="${DEBUG:-true}"
@@ -21,7 +20,13 @@ LON="139.7036"
 OFFSET=$((35 * 60))  # 35分（秒）
 
 TODAY_JST=$(date +%F)
-SUN_JSON=$(curl -s "https://api.sunrise-sunset.org/json?lat=${LAT}&lng=${LON}&formatted=0&date=${TODAY_JST}")
+SUN_JSON=$(curl --fail --silent --show-error --max-time 20 \
+  "https://api.sunrise-sunset.org/json?lat=${LAT}&lng=${LON}&formatted=0&date=${TODAY_JST}")
+
+if [[ $(jq -r '.status // empty' <<<"$SUN_JSON") != "OK" ]]; then
+  echo "${TODAY_JST} [weather] sunrise-sunset API returned an error" >&2
+  exit 1
+fi
 
 SUNRISE_UTC=$(echo "$SUN_JSON" | jq -r '.results.sunrise')
 SUNSET_UTC=$(echo "$SUN_JSON" | jq -r '.results.sunset')
@@ -49,7 +54,13 @@ else
   TARGET_GROUP="night"
 fi
 
-CURRENT_GROUP=$(grep "^${PROFILE}=" "${BASE}/profiles/profile_groups.conf" | cut -d= -f2)
+CURRENT_GROUP=$(awk -F= -v profile="$PROFILE" '$1 == profile { print $2 }' \
+  "${BASE}/profiles/profile_groups.conf")
+
+if [[ -z "$CURRENT_GROUP" ]]; then
+  echo "${TS} [weather] profile group is undefined: ${PROFILE}" >&2
+  exit 1
+fi
 
 if [[ "$CURRENT_GROUP" == "$TARGET_GROUP" ]]; then
   echo "${TS} [weather] already ${PROFILE} (${CURRENT_GROUP})"

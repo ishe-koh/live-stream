@@ -1,247 +1,156 @@
-# live-stream
+# Raspberry Pi YouTube live stream
 
-Raspberry Pi 5 と Camera Module v3 を用いて、YouTube Live へ常時配信を行うための配信基盤です。  
-rpicam-vid と ffmpeg を組み合わせ、systemd による常駐実行と、日の出・日の入りに応じた撮影プロファイルの自動切替を行います。
+Raspberry Pi 5とCamera Module v3からYouTube Liveへ常時配信するシステムです。`rpicam-vid`、`ffmpeg`、systemdで配信を維持し、日の出・日の入りに応じて撮影プロファイルを切り替えます。
 
----
-
-## 目次
-
-- [概要](#概要)
-- [特徴](#特徴)
-- [構成要件](#構成要件)
-- [ディレクトリ構成](#ディレクトリ構成)
-- [セットアップ](#セットアップ)
-- [プロファイル設定](#プロファイル設定)
-- [systemd サービス](#systemd-サービス)
-- [プロファイルの切替](#プロファイルの切替)
-- [自動切替（weather_report）](#自動切替weather_report)
-- [Slack 通知](#slack-通知)
-- [Git 管理方針](#git-管理方針)
-
----
-
-## 概要
-
-本リポジトリは、Raspberry Pi を用いた **365日稼働の定点ライブ配信** を目的としています。  
-配信停止時の復旧や、昼夜による撮影条件の変化を前提に設計されています。
-
----
-
-## 特徴
-
-- rpicam-vid + ffmpeg による軽量な配信パイプライン
-- systemd による自動再起動・常駐実行
-- 撮影条件を切り替える「プロファイル」機構
-- 日の出・日の入りを基準にした自動プロファイル切替
-- Slack Webhook による通知
-
----
-
-## 構成要件
-
-### ハードウェア
-
-- Raspberry Pi 5
-- Raspberry Pi Camera Module v3
-- 安定したネットワーク接続
-
-### ソフトウェア
-
-- Raspberry Pi OS（Bookworm 推奨）
-- rpicam-apps
-- ffmpeg
-- curl
-- jq
-- systemd
-- cron
-
----
-
-## ディレクトリ構成
+## 構成
 
 ```text
 /opt/live-stream/
-├── run.sh                     # systemd から起動されるエントリポイント
-├── stream.sh                  # 配信本体
-├── profile.env                # 現在有効なプロファイル名
+├── run.sh
+├── stream.sh
+├── switch_profile.sh
+├── weather_report.sh
+├── profile.env                  # 現在値。Git対象外
 ├── profiles/
 │   ├── day.conf
 │   ├── night.conf
-│   └── midnight.conf
+│   ├── midnight.conf
+│   └── profile_groups.conf
 ├── bin/
-│   ├── switch_profile.sh      # プロファイル切替スクリプト
-│   ├── weather_report.sh      # 日の出・日の入り判定
-│   └── notify_slack.sh        # Slack 通知
-└── logs/
-    └── weather_report.log
+│   ├── notify_slack.sh
+│   └── reset-youtube-stream.sh
+├── systemd/                     # /etc/systemd/systemから参照する正本
+│   ├── live-stream.service
+│   ├── youtube-stream-reset.{service,timer}
+│   ├── weather-report.{service,timer}
+│   └── midnight-profile.{service,timer}
+└── samples/etc/streamer/        # secretではない雛形のみ
 ```
 
-```text
-
-/etc/streamer/
-├── stream_key                 # YouTube ストリームキー（実体）
-├── slack_webhook              # Slack Webhook URL（実体）
-└── samples/
-    ├── stream_key.sample
-    └── slack_webhook.sample
-```
-
-## セットアップ
-1. 必要パッケージのインストール
-```text
-bash
-
-sudo apt update
-sudo apt install -y rpicam-apps ffmpeg curl jq
-```
-
-2. ユーザー・権限設計
-実行ユーザー：streamer
-
-開発・保守用ユーザー：ishii
-
-共通グループ：dev
-
-```text
-
-bash
-
-sudo groupadd dev
-sudo useradd -m -G dev streamer
-sudo usermod -aG dev ishii
-```
-
-
-3. ディレクトリ配置
-```text
-bash
-sudo mkdir -p /opt/live-stream
-sudo chown -R streamer:dev /opt/live-stream
-sudo chmod -R 775 /opt/live-stream
-```
-
-## プロファイル設定
-プロファイルとは
-撮影条件をまとめた設定ファイルです。
-profile.env に記載された名前のプロファイルが読み込まれます。
-
-```text
-env
-PROFILE=day
-```
-プロファイル例
-```text
-day.conf
-
-WIDTH=2304
-HEIGHT=1296
-FPS=30
-
-```
-
-```text
-night.conf
-
-WIDTH=2304
-HEIGHT=1296
-FPS=30
-
-SHUTTER=20000
-GAIN=1.5
-AWB=tungsten
-METERING=spot
-DENOISE=off
-```
-
-未指定の項目は rpicam-vid の自動制御に委ねられます。
-
-## systemd サービス
-サービス定義
-```text
-ini
-[Unit]
-Description=YouTube Live Camera Stream
-After=network.target
-
-[Service]
-User=streamer
-WorkingDirectory=/opt/live-stream
-ExecStart=/opt/live-stream/run.sh
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-## 有効化
-```text
-bash
-
-sudo systemctl daemon-reexec
-sudo systemctl daemon-reload
-sudo systemctl enable live-stream.service
-sudo systemctl start live-stream.service
-```
-
-## プロファイルの切替
-手動切替
-```text
-bash
-/opt/live-stream/bin/switch_profile.sh night
-```
-
-profile.env を更新
-
-live-stream.service を再起動
-
-## Slack 通知
-
-## 自動切替（weather_report）
-動作概要
-Sunrise Sunset API から日の出・日の入りを取得
-
-日の出 35分前 → day 系プロファイル
-
-日の入り 35分後 → night 系プロファイル
-
-現在のプロファイルグループと比較し、必要な場合のみ切替
-
-cron 登録例
-
-```text
-cron
-*/10 * * * * /opt/live-stream/bin/weather_report.sh >> /opt/live-stream/logs/weather_report.log 2>&1
-```
-Slack 通知
-Webhook 設定
-```text
-bash
-sudo mkdir -p /etc/streamer
-sudo cp slack_webhook.sample /etc/streamer/slack_webhook
-sudo chmod 600 /etc/streamer/slack_webhook
-sudo chown streamer:streamer /etc/streamer/slack_webhook
-```
-
-## Git 管理方針
-/opt/live-stream は Git 管理対象
-
-/etc/streamer の 実体ファイルは管理しない
-
-.sample のみをリポジトリに含める
+実際のsecretはリポジトリ外に置きます。
 
 ```text
 /etc/streamer/stream_key
 /etc/streamer/slack_webhook
 ```
-これらは .gitignore 対象です。
 
-補足
-本構成は以下を前提に設計されています。
+これらの内容をGit、ログ、issueへ追加しないでください。`.gitignore`はリポジトリ外のファイルを保護しないため、コミット前のsecret検査も必要です。
 
-配信は途切れても自動復帰する
+## 実行の流れ
 
-明示的な「停止」より「再起動」を優先
+`live-stream.service`は`streamer:dev`で`run.sh`を起動します。`run.sh`は`stream.sh`を実行し、`profile.env`で選択された設定と`/etc/streamer/stream_key`を読み込みます。プロセス終了時は5秒後に再起動し、異常ループを避けるため5分間に10回の起動制限を設けています。
 
-設定はコードではなくプロファイルで切り替える
+```text
+live-stream.service
+  └─ run.sh
+      └─ stream.sh
+          ├─ rpicam-vid
+          └─ ffmpeg → YouTube RTMP
+```
+
+現在のプロファイルは次の形式です。
+
+```dotenv
+PROFILE=day
+```
+
+手動切替は次のコマンドで行います。指定した設定の存在確認、`profile.env`のatomic更新、配信serviceのrestart、Slack通知を順に行います。
+
+```bash
+sudo /opt/live-stream/switch_profile.sh night manual
+```
+
+## 自動実行
+
+自動処理はすべてsystemd timerで管理します。時刻はunit内で`Asia/Tokyo`を明示しています。
+
+| timer | 時刻 | 処理 |
+|---|---:|---|
+| `weather-report.timer` | 毎時05分から10分間隔 | 日の出35分前から日の入り35分後をday、それ以外をnightとして必要時のみ切替 |
+| `midnight-profile.timer` | 毎日22:00 | `midnight`へ切替 |
+| `youtube-stream-reset.timer` | 毎日02:00 | 配信を完全停止し、15秒待ってから起動 |
+
+weather判定を00分ではなく05分から実行することで、02:00の完全再起動と競合しないようにしています。さらに、完全再起動とプロファイル変更は同じ`flock`を取得して直列実行します。
+
+## 初期セットアップ
+
+必要なパッケージを導入します。
+
+```bash
+sudo apt update
+sudo apt install -y rpicam-apps ffmpeg curl jq util-linux
+```
+
+secretを作成します。sampleをコピーした後、実値は実機上でのみ編集してください。
+
+```bash
+sudo install -d -o streamer -g dev -m 0750 /etc/streamer
+sudo install -o streamer -g dev -m 0640 samples/etc/streamer/stream_key.sample /etc/streamer/stream_key
+sudo install -o streamer -g dev -m 0640 samples/etc/streamer/slack_webhook.sample /etc/streamer/slack_webhook
+```
+
+リポジトリ内のunitを正本としてsymlinkし、有効化します。
+
+```bash
+for unit in /opt/live-stream/systemd/*; do
+  sudo ln -sfn "$unit" "/etc/systemd/system/$(basename "$unit")"
+done
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now live-stream.service
+sudo systemctl enable --now weather-report.timer
+sudo systemctl enable --now midnight-profile.timer
+sudo systemctl enable --now youtube-stream-reset.timer
+```
+
+旧cronから移行する場合、systemd timerが動作していることを確認してから、root crontabの以下2行を削除します。二重実行を避けるため、cronとtimerを併用しないでください。
+
+```cron
+*/10 * * * * /opt/live-stream/weather_report.sh >> /opt/live-stream/logs/weather_report.log 2>&1
+0 22 * * * /opt/live-stream/switch_profile.sh midnight
+```
+
+## 確認と運用
+
+```bash
+systemctl status live-stream.service
+systemctl list-timers --all
+journalctl -u live-stream.service -f
+journalctl -u weather-report.service --since today
+journalctl -u youtube-stream-reset.service --since today
+```
+
+`ffmpeg`のプロセス引数や起動ログにはRTMP URLが表示される場合があります。stream keyを含む出力を共有しないでください。
+
+banner合成にはGit対象外の`/opt/live-stream/media/banner/entas_banner_fixed.mp4`が必要です。実機交換時はこのファイルも安全な経路で移行してください。
+
+unitを変更した場合は、配信を不用意に切断しないよう、まず検証してからreloadします。`daemon-reload`だけでは稼働中の`live-stream.service`は再起動されません。
+
+```bash
+systemd-analyze verify /opt/live-stream/systemd/*
+sudo systemctl daemon-reload
+```
+
+## Git管理方針
+
+管理対象:
+
+- 配信・通知・プロファイル切替スクリプト
+- 撮影プロファイル
+- systemd service/timerの正本
+- secretのsample
+- README
+
+管理対象外:
+
+- `profile.env`
+- `/etc/streamer`の実secret
+- ログ、動画、画像、バックアップファイル
+
+コミット前に少なくとも以下を確認します。
+
+```bash
+git status --short
+git diff --check
+git grep -nE 'hooks\.slack\.com|rtmp://[^ ]+/[^ ]+'
+```

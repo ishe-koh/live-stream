@@ -1,0 +1,6 @@
+[Unit]
+Description=Reset YouTube live stream with a full stop interval
+
+[Service]
+Type=oneshot
+ExecStart=/opt/live-stream/bin/reset-youtube-stream.sh

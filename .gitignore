@@ -5,4 +5,21 @@ logs/*
 
 # editor / misc
 *.swp
+*.bak
 .DS_Store
+
+
+# media
+*.mp4
+*.avi
+*.mkv
+*.mp3
+*.wav
+*.flac
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.svg
+*.ico
